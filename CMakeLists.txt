@@ -62,20 +62,18 @@ message(STATUS "user-defined CFLAGS = ${CMAKE_C_FLAGS}")
 
 ### Set optimize options
 set       (BUILD_TARGET "sc" CACHE STRING "Build target, sc (Single-cell) or ms (Multi-scale)")
-option_set(USE_TLOG                       "Use TLOG library"                                         OFF)
 option_set(USE_PAPI                       "Use Performance API"                                      OFF)
 option_set(USE_NVTX                       "Use NVIDIA Tools Extension Library"                       OFF)
-option_set(OPT_CURRENT                    "Optimize current code with RT"                            OFF)
 option_set(OPT_STENCIL                    "Optimize stencil code"                                    ON)
-option_set(STENCIL_WITH_C                 "Use C code at stencil"                                    OFF)
 option_set(DOMAIN_IS_POW2                 "Stencil domain is power of two"                           OFF)
+option_set(ENABLE_CURRENT_PREPROCESSING   "Enable preprocessing of the current computation in RT"    OFF)
 option_set(ENABLE_ARRAY_PADDING           "Enable array padding for the stencil"                     ON)
 option_set(ENABLE_EXPLICIT_VEC            "Enable explicit vectorization for the stencil"            OFF)
 option_set(ENABLE_LOOP_BLOCKING           "Enable loop blocking at the stencil"                      OFF)
 option_set(ENABLE_SWPREFETCH              "Enable software prefetch in the explicit vec of stencil"  OFF)
 option_set(ENABLE_REDUCE_FOR_MANYCORE     "Enable optimized reduction code for many-core processor"  OFF)
+option_set(ENABLE_OPENACC                 "Enable OpenACC for NVIDIA GPUs"                           OFF)
 option_set(ENABLE_LARGE_BLOCKING          "Enable large blocking for accelerator"                    OFF)
-option_set(USE_OLD_PROPAGATOR             "Use old propagator for comparing to past results"         OFF)
 
 if (${BUILD_TARGET} STREQUAL "ms")
   add_definitions(-DARTED_MS)
@@ -104,12 +102,6 @@ set(PERFCHECK_EXT perfcheck)
 
 set(CMAKE_Fortran_MODULE_DIRECTORY ${PROJECT_BINARY_DIR})
 
-### TLOG time profiler from CCS, Univ. TSUKUBA
-if (USE_TLOG)
-  add_definitions(-DARTED_USE_TLOG)
-  set(EXTERNAL_LIBS ${EXTERNAL_LIBS} tlog)
-endif ()
-
 ### Performance API from ICL, Univ. TENNESSEE
 if (USE_PAPI)
   add_definitions(-DARTED_USE_PAPI)
@@ -124,15 +116,13 @@ if (USE_NVTX)
   set(EXTERNAL_LIBS ${EXTERNAL_LIBS} nvToolsExt)
 endif ()
 
-add_definitions_if(OPT_CURRENT                -DARTED_CURRENT_OPTIMIZED)
-add_definitions_if(ENABLE_REDUCE_FOR_MANYCORE -DARTED_REDUCE_FOR_MANYCORE)
-add_definitions_if(ENABLE_LARGE_BLOCKING      -DARTED_LBLK)
-add_definitions_if(USE_OLD_PROPAGATOR         -DARTED_USE_OLD_PROPAGATOR)
+add_definitions_if(ENABLE_CURRENT_PREPROCESSING -DARTED_CURRENT_PREPROCESSING)
+add_definitions_if(ENABLE_REDUCE_FOR_MANYCORE   -DARTED_REDUCE_FOR_MANYCORE)
+add_definitions_if(ENABLE_LARGE_BLOCKING        -DARTED_LBLK)
 
 if (OPT_STENCIL)
   add_definitions(-DARTED_STENCIL_OPTIMIZED)
 
-  add_definitions_if(STENCIL_WITH_C       -DARTED_STENCIL_WITH_C)
   add_definitions_if(DOMAIN_IS_POW2       -DARTED_DOMAIN_POWER_OF_TWO)
   add_definitions_if(ENABLE_EXPLICIT_VEC  -DARTED_EXPLICIT_VECTORIZATION)
   add_definitions_if(ENABLE_SWPREFETCH    -DARTED_ENABLE_SOFTWARE_PREFETCH)

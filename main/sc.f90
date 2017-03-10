@@ -20,11 +20,12 @@
 !--------10--------20--------30--------40--------50--------60--------70--------80--------90--------100-------110-------120--------130
 Program main
   use Global_Variables
-  use timelog
+  use timer
   use opt_variables
   use environment
   use performance_analyzer
   use communication
+  use misc_routines, only: get_wtime
   implicit none
   integer :: iter,ik,ib,ia,i,ixyz
   character(3) :: Rion_update
@@ -33,7 +34,7 @@ Program main
 
   call comm_init
 
-  call timelog_initialize
+  call timer_initialize
   call load_environments
 
   if(comm_is_root()) then
@@ -51,9 +52,12 @@ Program main
 
   if(comm_is_root())write(*,*)'NUMBER_THREADS = ',NUMBER_THREADS
 
-  etime1=get_wtime()
+  call timer_begin(LOG_ALL)
+
+  call timer_begin(LOG_STATIC)
   Time_start=get_wtime() !reentrance
   call comm_bcast(Time_start,proc_group(1))
+
   Rion_update='on'
 
   call Read_data
@@ -97,10 +101,14 @@ Program main
   if (MD_option /= 'Y') Rion_update = 'off'
   Eall_GS(0)=Eall
 
-  if(comm_is_root()) write(*,*) 'This is the end of preparation for ground state calculation'
-  if(comm_is_root()) write(*,*) '-----------------------------------------------------------'
+  if(comm_is_root()) then
+    write(*,*) 'This is the end of preparation for ground state calculation'
+    call timer_show_current_hour('elapse time=',LOG_ALL)
+    write(*,*) '-----------------------------------------------------------'
+  end if
 
-  call timelog_reset
+  call reset_gs_timer
+  call timer_begin(LOG_GROUND_STATE)
   do iter=1,Nscf
     if (comm_is_root())  write(*,*) 'iter = ',iter
     if( kbTev < 0d0 )then ! sato
@@ -155,7 +163,7 @@ Program main
     call Total_Energy_omp(Rion_update,'GS')
     call Ion_Force_omp(Rion_update,'GS')
     call sp_energy_omp
-    call current_GS_omp_KB
+    call current_GS
     Eall_GS(iter)=Eall
     esp_var_ave(iter)=sum(esp_var(:,:))/(NK*Nelec/2)
     esp_var_max(iter)=maxval(esp_var(:,:))
@@ -171,33 +179,35 @@ Program main
       write(*,*) 'var_ave,var_max=',esp_var_ave(iter),esp_var_max(iter)
       write(*,*) 'dns. difference =',dns_diff(iter)
       if (iter/20*20 == iter) then
-         etime2=get_wtime()
          write(*,*) '====='
-         write(*,*) 'elapse time=',etime2-etime1,'sec=',(etime2-etime1)/60,'min'
+         call timer_show_current_min('elapse time=',LOG_ALL)
       end if
       write(*,*) '-----------------------------------------------'
     end if
   end do
-  etime2 = get_wtime()
+  call timer_end(LOG_GROUND_STATE)
 
   if(comm_is_root()) then
-    call timelog_set(LOG_DYNAMICS, etime2 - etime1)
-    call timelog_show_hour('Ground State time  :', LOG_DYNAMICS)
-    call timelog_show_min ('CG time            :', LOG_CG)
-    call timelog_show_min ('Gram Schmidt time  :', LOG_GRAM_SCHMIDT)
-    call timelog_show_min ('diag time          :', LOG_DIAG)
-    call timelog_show_min ('sp_energy time     :', LOG_SP_ENERGY)
-    call timelog_show_min ('hpsi time          :', LOG_HPSI)
-    call timelog_show_min (' - stencil time    :', LOG_HPSI_STENCIL)
-    call timelog_show_min (' - pseudo pt. time :', LOG_HPSI_PSEUDO)
-    call timelog_show_min ('psi_rho time       :', LOG_PSI_RHO)
-    call timelog_show_min ('Hartree time       :', LOG_HARTREE)
-    call timelog_show_min ('Exc_Cor time       :', LOG_EXC_COR)
-    call timelog_show_min ('current time       :', LOG_CURRENT)
-    call timelog_show_min ('Total_Energy time  :', LOG_TOTAL_ENERGY)
-    call timelog_show_min ('Ion_Force time     :', LOG_ION_FORCE)
+    call timer_show_hour('Ground State time  :', LOG_GROUND_STATE)
+    call timer_show_min ('CG time            :', LOG_CG)
+    call timer_show_min ('Gram Schmidt time  :', LOG_GRAM_SCHMIDT)
+    call timer_show_min ('diag time          :', LOG_DIAG)
+    call timer_show_min ('sp_energy time     :', LOG_SP_ENERGY)
+    call timer_show_min ('hpsi time          :', LOG_HPSI)
+    call timer_show_min (' - stencil time    :', LOG_HPSI_STENCIL)
+    call timer_show_min (' - pseudo pt. time :', LOG_HPSI_PSEUDO)
+    call timer_show_min ('psi_rho time       :', LOG_PSI_RHO)
+    call timer_show_min ('Hartree time       :', LOG_HARTREE)
+    call timer_show_min ('Exc_Cor time       :', LOG_EXC_COR)
+    call timer_show_min ('current time       :', LOG_CURRENT)
+    call timer_show_min ('Total_Energy time  :', LOG_TOTAL_ENERGY)
+    call timer_show_min ('Ion_Force time     :', LOG_ION_FORCE)
   end if
-  if(comm_is_root()) write(*,*) 'This is the end of GS calculation'
+  if(comm_is_root()) then
+    write(*,*) 'This is the end of GS calculation'
+    call timer_show_current_hour('elapse time=',LOG_ALL)
+    write(*,*) '-----------------------------------------------------------'
+  end if
 
   zu_GS0(:,:,:)=zu_GS(:,:,:)
 
@@ -217,13 +227,12 @@ Program main
   Eall0=Eall
   if(comm_is_root()) write(*,*) 'Eall =',Eall
 
-  etime2=get_wtime()
+  call timer_end(LOG_STATIC)
   if (comm_is_root()) then
     write(*,*) '-----------------------------------------------'
-    write(*,*) 'static time=',etime2-etime1,'sec=', (etime2-etime1)/60,'min'
+    call timer_show_min('static time=',LOG_STATIC)
     write(*,*) '-----------------------------------------------'
   end if
-  etime1=etime2
 
   if (comm_is_root()) then
     write(*,*) '-----------------------------------------------'
@@ -256,7 +265,11 @@ Program main
   call opt_vars_init_t4ppt()
 #endif
 
-  if(comm_is_root()) write(*,*) 'This is the end of preparation for Real time calculation'
+  if(comm_is_root()) then
+    write(*,*) 'This is the end of preparation for Real time calculation'
+    call timer_show_current_hour('elapse time=',LOG_ALL)
+    write(*,*) '-----------------------------------------------------------'
+  end if
 
 !====RT calculation============================
 
@@ -264,7 +277,7 @@ Program main
   do ixyz=1,3
     kAc(:,ixyz)=kAc0(:,ixyz)+Ac_tot(iter,ixyz)
   enddo
-  call current0_omp_KB
+  call current0
   javt(0,:)=jav(:)
 
   Vloc_old(:,1) = Vloc(:); Vloc_old(:,2) = Vloc(:)
@@ -302,12 +315,12 @@ Program main
 
 !$acc enter data create(kAc)
 
-  call timelog_reset
-  call timelog_enable_verbose
 #ifdef ARTED_USE_PAPI
   call papi_begin
 #endif
-  etime1=get_wtime()
+
+  call reset_rt_timer
+  call timer_begin(LOG_DYNAMICS)
 !$acc enter data copyin(zu)
   do iter=entrance_iter+1,Nt
 
@@ -322,17 +335,13 @@ Program main
       Ac_tot(iter+1,:)=Ac_ext(iter+1,:)
     end if
 
-    do ixyz=1,3
-      kAc(:,ixyz)=kAc0(:,ixyz)+Ac_tot(iter,ixyz)
-    enddo
-!$acc update device(kAc)
+    call dt_evolve_KB(iter)
 
-#ifdef ARTED_USE_OLD_PROPAGATOR
-    call dt_evolve_omp_KB(iter)
-#else
-    call dt_evolve_etrs_omp_KB(iter)
-#endif
-    call current_omp_KB
+    do ixyz=1,3
+      kAc(:,ixyz)=kAc0(:,ixyz)+Ac_tot(iter+1,ixyz)
+    enddo
+!$acc update device(kAc,kAc_new)
+    call current_RT
 
     javt(iter+1,:)=jav(:)
     if (MD_option == 'Y') then
@@ -349,7 +358,7 @@ Program main
       end if
     end if
 
-    call timelog_begin(LOG_OTHER)
+    call timer_begin(LOG_OTHER)
 
 
     E_ext(iter,:)=-(Ac_ext(iter+1,:)-Ac_ext(iter-1,:))/(2*dt)
@@ -431,13 +440,11 @@ Program main
 
 
 !Timer
-    etime2=get_wtime()
-    call timelog_set(LOG_DYNAMICS, etime2 - etime1)
     if (iter/1000*1000 == iter.and.comm_is_root()) then
-      call timelog_show_hour('dynamics time      :', LOG_DYNAMICS)
-      call timelog_show_min ('dt_evolve time     :', LOG_DT_EVOLVE)
-      call timelog_show_min ('Hartree time       :', LOG_HARTREE)
-      call timelog_show_min ('current time       :', LOG_CURRENT)
+      call timer_show_current_hour('dynamics time      :', LOG_DYNAMICS)
+      call timer_show_min         ('dt_evolve time     :', LOG_DT_EVOLVE)
+      call timer_show_min         ('Hartree time       :', LOG_HARTREE)
+      call timer_show_min         ('current time       :', LOG_CURRENT)
     end if
 !Timer for shutdown
     if (iter/10*10 == iter) then
@@ -456,35 +463,34 @@ Program main
       end if
     end if
 
-    call timelog_end(LOG_OTHER)
+    call timer_end(LOG_OTHER)
   enddo !end of RT iteraction========================
 !$acc exit data copyout(zu)
-  etime2=get_wtime()
+  call timer_end(LOG_DYNAMICS)
+
 #ifdef ARTED_USE_PAPI
   call papi_end
 #endif
-  call timelog_set(LOG_DYNAMICS, etime2 - etime1)
-  call timelog_disable_verbose
 
   if(comm_is_root()) then
 #ifdef ARTED_USE_PAPI
-    call papi_result(timelog_get(LOG_DYNAMICS))
+    call papi_result(timer_get(LOG_DYNAMICS))
 #endif
-    call timelog_show_hour('dynamics time      :', LOG_DYNAMICS)
-    call timelog_show_min ('dt_evolve time     :', LOG_DT_EVOLVE)
-    call timelog_show_min ('hpsi time          :', LOG_HPSI)
-    call timelog_show_min (' - init time       :', LOG_HPSI_INIT)
-    call timelog_show_min (' - stencil time    :', LOG_HPSI_STENCIL)
-    call timelog_show_min (' - pseudo pt. time :', LOG_HPSI_PSEUDO)
-    call timelog_show_min (' - update time     :', LOG_HPSI_UPDATE)
-    call timelog_show_min ('psi_rho time       :', LOG_PSI_RHO)
-    call timelog_show_min ('Hartree time       :', LOG_HARTREE)
-    call timelog_show_min ('Exc_Cor time       :', LOG_EXC_COR)
-    call timelog_show_min ('current time       :', LOG_CURRENT)
-    call timelog_show_min ('Total_Energy time  :', LOG_TOTAL_ENERGY)
-    call timelog_show_min ('Ion_Force time     :', LOG_ION_FORCE)
-    call timelog_show_min ('Other time         :', LOG_OTHER)
-    call timelog_show_min ('Allreduce time     :', LOG_ALLREDUCE)
+    call timer_show_hour('dynamics time      :', LOG_DYNAMICS)
+    call timer_show_min ('dt_evolve time     :', LOG_DT_EVOLVE)
+    call timer_show_min ('hpsi time          :', LOG_HPSI)
+    call timer_show_min (' - init time       :', LOG_HPSI_INIT)
+    call timer_show_min (' - stencil time    :', LOG_HPSI_STENCIL)
+    call timer_show_min (' - pseudo pt. time :', LOG_HPSI_PSEUDO)
+    call timer_show_min (' - update time     :', LOG_HPSI_UPDATE)
+    call timer_show_min ('psi_rho time       :', LOG_PSI_RHO)
+    call timer_show_min ('Hartree time       :', LOG_HARTREE)
+    call timer_show_min ('Exc_Cor time       :', LOG_EXC_COR)
+    call timer_show_min ('current time       :', LOG_CURRENT)
+    call timer_show_min ('Total_Energy time  :', LOG_TOTAL_ENERGY)
+    call timer_show_min ('Ion_Force time     :', LOG_ION_FORCE)
+    call timer_show_min ('Other time         :', LOG_OTHER)
+    call timer_show_min ('Allreduce time     :', LOG_ALLREDUCE)
   end if
   call write_performance(trim(directory)//'sc_performance')
 
@@ -498,7 +504,11 @@ Program main
     end if
   endif
 
-  if(comm_is_root()) write(*,*) 'This is the end of RT calculation'
+  if(comm_is_root()) then
+    write(*,*) 'This is the end of RT calculation'
+    call timer_show_current_hour('elapse time=',LOG_ALL)
+    write(*,*) '-----------------------------------------------------------'
+  end if
 
 !====RT calculation===========================
 !====Analyzing calculation====================
@@ -512,11 +522,29 @@ Program main
 
   if (comm_is_root()) write(*,*) 'This is the end of all calculation'
   Time_now=get_wtime()
-  if (comm_is_root() ) write(*,*) 'Total time =',(Time_now-Time_start)
+  call timer_end(LOG_ALL)
+  if (comm_is_root()) call timer_show_hour('Total time =',LOG_ALL)
 
 1 if(comm_is_root()) write(*,*)  'This calculation is shutdown successfully!'
   call comm_finalize
 
+contains
+  subroutine reset_gs_timer
+    implicit none
+    integer :: i
+    do i = LOG_CG,LOG_GRAM_SCHMIDT
+      call timer_reset(i)
+    end do
+    call reset_rt_timer
+  end subroutine
+
+  subroutine reset_rt_timer
+    implicit none
+    integer :: i
+    do i = LOG_DT_EVOLVE,LOG_ALLREDUCE
+      call timer_reset(i)
+    end do
+  end subroutine
 End Program Main
 !--------10--------20--------30--------40--------50--------60--------70--------80--------90--------100-------110-------120--------130
 Subroutine Read_data
@@ -556,6 +584,7 @@ Subroutine Read_data
 !yabana
     read(*,*) functional, cval
 !yabana
+    read(*,*) propagator
     read(*,*) ps_format !shinohara
     read(*,*) PSmask_option !shinohara
     read(*,*) alpha_mask, gamma_mask, eta_mask !shinohara
@@ -576,6 +605,7 @@ Subroutine Read_data
     write(*,*) 'functional=',functional
     if(functional == 'TBmBJ') write(*,*) 'cvalue=',cval
 !yabana
+    write(*,*) 'propagator=',propagator
     write(*,*) 'ps_format =',ps_format !shinohara
     write(*,*) 'PSmask_option =',PSmask_option !shinohara
     write(*,*) 'alpha_mask, gamma_mask, eta_mask =',alpha_mask, gamma_mask, eta_mask !shinohara
@@ -601,6 +631,7 @@ Subroutine Read_data
   call comm_bcast(directory,proc_group(1))
   call comm_bcast(functional,proc_group(1))
   call comm_bcast(cval,proc_group(1))
+  call comm_bcast(propagator,proc_group(1))
 
   call comm_bcast(ps_format,proc_group(1))
   call comm_bcast(PSmask_option,proc_group(1))
@@ -759,7 +790,7 @@ Subroutine Read_data
   allocate(Lx(NL),Ly(NL),Lz(NL),Gx(NG),Gy(NG),Gz(NG))
   allocate(Lxyz(0:NLx-1,0:NLy-1,0:NLz-1))
   allocate(ifdx(-Nd:Nd,1:NL),ifdy(-Nd:Nd,1:NL),ifdz(-Nd:Nd,1:NL))
-  allocate(kAc(NK,3),kAc0(NK,3))
+  allocate(kAc(NK,3),kAc0(NK,3),kAc_new(NK,3))
   allocate(Vh(NL),Vexc(NL),Eexc(NL),rho(NL),Vpsl(NL),Vloc(NL),Vloc_GS(NL),Vloc_t(NL))
   allocate(Vloc_new(NL),Vloc_old(NL,2))
 !yabana
@@ -953,9 +984,10 @@ End Subroutine Read_data
 !--------10--------20--------30--------40--------50--------60--------70--------80--------90--------100-------110-------120--------130
 subroutine prep_Reentrance_Read
   use Global_Variables
-  use timelog,       only: timelog_reentrance_read, get_wtime
+  use timer,       only: timer_reentrance_read
   use opt_variables, only: opt_vars_initialize_p1, opt_vars_initialize_p2
   use communication
+  use misc_routines, only: get_wtime
   implicit none
   real(8) :: time_in,time_out
 
@@ -1052,12 +1084,12 @@ subroutine prep_Reentrance_Read
   read(500) functional
   read(500) cval ! cvalue for TBmBJ. If cval<=0, calculated in the program
 !yabana
+  read(500) propagator
 
 !  read(500) procid(1),nprocs(1),ierr
 !  read(500) proc_group(2),NEWPROCS,NEWRANK ! sato
   read(500) NK_ave,NG_ave,NK_s,NK_e,NG_s,NG_e
   read(500) NK_remainder,NG_remainder
-  read(500) etime1,etime2
 ! Timer
 !  read(500) Time_shutdown
 !  read(500) Time_start,Time_now
@@ -1182,11 +1214,11 @@ subroutine prep_Reentrance_Read
   read(500) eGx(:,:),eGy(:,:),eGz(:,:),eGxc(:,:),eGyc(:,:),eGzc(:,:)
 
   allocate(E_ext(0:Nt,3),E_ind(0:Nt,3),E_tot(0:Nt,3))
-  allocate(kAc(NK,3),kAc0(NK,3))
+  allocate(kAc(NK,3),kAc0(NK,3),kAc_new(NK,3))
   allocate(Ac_ext(-1:Nt+1,3),Ac_ind(-1:Nt+1,3),Ac_tot(-1:Nt+1,3))
 
   read(500) E_ext(:,:),E_ind(:,:),E_tot(:,:)
-  read(500) kAc(:,:),kAc0(:,:)                  !k+A(t)/c (kAc)
+  read(500) kAc(:,:),kAc0(:,:),kAc_new(:,:)                  !k+A(t)/c (kAc)
   read(500) Ac_ext(:,:),Ac_ind(:,:),Ac_tot(:,:) !A(t)/c (Ac)
 
   allocate(ekr(Nps,NI)) ! sato
@@ -1224,7 +1256,7 @@ subroutine prep_Reentrance_Read
   end if
 
 
-  call timelog_reentrance_read(500)
+  call timer_reentrance_read(500)
   call opt_vars_initialize_p1
   call opt_vars_initialize_p2
 
@@ -1242,8 +1274,9 @@ end subroutine prep_Reentrance_Read
 !--------10--------20--------30--------40--------50--------60--------70--------80--------90--------100-------110-------120--------130
 subroutine prep_Reentrance_write
   use Global_Variables
-  use timelog, only: timelog_reentrance_write, get_wtime
+  use timer, only: timer_reentrance_write
   use communication
+  use misc_routines, only: get_wtime
   implicit none
   real(8) :: time_in,time_out
 
@@ -1328,12 +1361,12 @@ subroutine prep_Reentrance_write
   write(500) functional
   write(500) cval ! cvalue for TBmBJ. If cval<=0, calculated in the program
 !yabana
+  write(500) propagator
 
 !  write(500) procid(1),nprocs(1),ierr
 !  write(500) proc_group(2),NEWPROCS,NEWRANK ! sato
   write(500) NK_ave,NG_ave,NK_s,NK_e,NG_s,NG_e
   write(500) NK_remainder,NG_remainder
-  write(500) etime1,etime2
 ! Timer
 !  write(500) Time_shutdown
 !  write(500) Time_start,Time_now
@@ -1410,7 +1443,7 @@ subroutine prep_Reentrance_write
   write(500) eGx(:,:),eGy(:,:),eGz(:,:),eGxc(:,:),eGyc(:,:),eGzc(:,:)
 
   write(500) E_ext(:,:),E_ind(:,:),E_tot(:,:)
-  write(500) kAc(:,:),kAc0(:,:)                  !k+A(t)/c (kAc)
+  write(500) kAc(:,:),kAc0(:,:),kAc_new(:,:)              !k+A(t)/c (kAc)
   write(500) Ac_ext(:,:),Ac_ind(:,:),Ac_tot(:,:) !A(t)/c (Ac)
 
 ! sato
@@ -1434,7 +1467,7 @@ subroutine prep_Reentrance_write
      write(500)rho_nlcc(:),tau_nlcc(:)
   end if
 
-  call timelog_reentrance_write(500)
+  call timer_reentrance_write(500)
 
 !== write data ===!  
 

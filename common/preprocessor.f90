@@ -29,17 +29,14 @@ subroutine print_optimize_message
 #ifdef ARTED_USE_PAPI
   print *, '  ARTED_USE_PAPI'
 #endif
-#ifdef ARTED_CURRENT_OPTIMIZED
-  print *, '  ARTED_CURRENT_OPTIMIZED'
+#ifdef ARTED_CURRENT_PREPROCESSING
+  print *, '  ARTED_CURRENT_PREPROCESSING'
 #endif
 #ifdef ARTED_STENCIL_ORIGIN
   print *, '  ARTED_STENCIL_ORIGIN'
 #endif
 #ifdef ARTED_STENCIL_OPTIMIZED
   print *, '  ARTED_STENCIL_OPTIMIZED'
-#endif
-#ifdef ARTED_STENCIL_WITH_C
-  print *, '  ARTED_STENCIL_WITH_C'
 #endif
 #ifdef ARTED_STENCIL_PADDING
   print *, '  ARTED_STENCIL_PADDING'
@@ -55,8 +52,5 @@ subroutine print_optimize_message
 #endif
 #ifdef ARTED_ENABLE_SOFTWARE_PREFETCH
   print *, '  ARTED_ENABLE_SOFTWARE_PREFETCH'
-#endif
-#ifdef ARTED_USE_OLD_PROPAGATOR
-  print *, '  ARTED_USE_OLD_PROPAGATOR'
 #endif
 end subroutine

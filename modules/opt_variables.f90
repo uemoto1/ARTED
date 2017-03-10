@@ -19,7 +19,7 @@ module opt_variables
   real(8) :: lapt(12)
 
   integer                :: PNLx,PNLy,PNLz,PNL
-  complex(8),allocatable :: ztpsi(:,:,:)
+  complex(8),allocatable :: zhtpsi(:,:,:),zttpsi(:,:)
 
   real(8),allocatable :: zrhotmp(:,:)
 
@@ -35,8 +35,6 @@ module opt_variables
 #ifdef ARTED_STENCIL_ORIGIN
   integer,allocatable :: zifdx(:,:),zifdy(:,:),zifdz(:,:)
 #endif
-
-  integer,allocatable :: hpsi_called(:)
 
 #ifdef ARTED_LBLK
   integer,allocatable :: t4ppt_nlma(:)    ! (PNL)
@@ -62,7 +60,7 @@ module opt_variables
 #endif
 
 !dir$ attributes align:MEM_ALIGNED :: lapt
-!dir$ attributes align:MEM_ALIGNED :: ztpsi
+!dir$ attributes align:MEM_ALIGNED :: zhtpsi,zttpsi
 !dir$ attributes align:MEM_ALIGNED :: zrhotmp
 !dir$ attributes align:MEM_ALIGNED :: zJxyz,zKxyz
 !dir$ attributes align:MEM_ALIGNED :: zcx,zcy,zcz
@@ -73,37 +71,9 @@ module opt_variables
 #endif
 
 contains
-  function ceil_power_of_two(n)
-    implicit none
-    integer,intent(in) :: n
-    integer            :: ceil_power_of_two
-    integer :: x
-    x = n
-    x = ior(x, ishft(x, 1))
-    x = ior(x, ishft(x, 2))
-    x = ior(x, ishft(x, 4))
-    x = ior(x, ishft(x, 8))
-    x = ior(x, ishft(x, 16))
-    ceil_power_of_two = x - ishft(x, 1)
-  end function
-
-  function roundup_pow2(n)
-    implicit none
-    integer,intent(in) :: n
-    integer            :: roundup_pow2,k
-
-    k = n - 1
-    k = ior(k, ishft(k,-1))
-    k = ior(k, ishft(k,-2))
-    k = ior(k, ishft(k,-4))
-    k = ior(k, ishft(k,-8))
-    k = ior(k, ishft(k,-16))
-
-    roundup_pow2 = k + 1
-  end function roundup_pow2
-
   subroutine opt_vars_initialize_p1
     use global_variables
+    use misc_routines, only: ceiling_pow2
     implicit none
     integer :: tid_range
 
@@ -113,7 +83,7 @@ contains
     end select
 
 #ifdef ARTED_REDUCE_FOR_MANYCORE
-    tid_range = roundup_pow2(NUMBER_THREADS) - 1
+    tid_range = ceiling_pow2(NUMBER_THREADS) - 1
 #else
     tid_range = 0
 #endif
@@ -136,16 +106,17 @@ contains
     PNL  = PNLx * PNLy * PNLz
 
 #ifndef ARTED_LBLK
-    allocate(ztpsi(0:PNL-1,4,0:NUMBER_THREADS-1))
+    allocate(zhtpsi(0:PNL-1,4,0:NUMBER_THREADS-1))
 #else
     blk_nkb_hpsi = min(at_least_parallelism/PNL + 1, NKB)
-    allocate(ztpsi(0:PNL-1, 0:blk_nkb_hpsi-1, 4))
+    allocate(zhtpsi(0:PNL-1, 0:blk_nkb_hpsi-1, 4))
     !write(*,*) "blk_nkb_hpsi:", blk_nkb_hpsi
 
     !blk_nkb_current = min(at_least_parallelism/PNL + 1, NKB)
     blk_nkb_current = min(at_least_parallelism/(Nlma*128) + 1, NKB)
     !write(*,*) "blk_nkb_current:", blk_nkb_current
 #endif
+    allocate(zttpsi(0:PNL-1,0:NUMBER_THREADS-1))
 
     allocate(zcx(NBoccmax,NK_s:NK_e))
     allocate(zcy(NBoccmax,NK_s:NK_e))
@@ -303,6 +274,7 @@ contains
 #endif
 
   subroutine auto_blocking
+    use misc_routines, only: floor_pow2
     implicit none
     integer,parameter :: L1cache_size =  8 * 1024
     integer,parameter :: value_size   = 24
@@ -312,8 +284,8 @@ contains
     nyx = dble(L1cache_size) / (PNLz * value_size)
     sq  = int(floor(sqrt(nyx)))
 
-    STENCIL_BLOCKING_X = ceil_power_of_two(min(sq, PNLx))
-    STENCIL_BLOCKING_Y = ceil_power_of_two(min(sq, PNLy))
+    STENCIL_BLOCKING_X = floor_pow2(min(sq, PNLx))
+    STENCIL_BLOCKING_Y = floor_pow2(min(sq, PNLy))
   end subroutine
 
   subroutine symmetric_load_balancing(NK,NK_ave,NK_s,NK_e,NK_remainder,procid,nprocs)
