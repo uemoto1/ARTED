@@ -15,9 +15,7 @@
 !
 subroutine prep_backup_values(is_backup)
   use global_variables
-  use timer,           only: timer_reentrance_read, timer_reentrance_write
   use opt_variables,   only: opt_vars_initialize_p1, opt_vars_initialize_p2
-  use backup_routines, only: backup_value
   use misc_routines,   only: get_wtime
   use communication,   only: comm_sync_all, comm_bcast, comm_is_root, comm_set_level2_group, &
                              procid, proc_group
@@ -56,6 +54,52 @@ subroutine prep_backup_values(is_backup)
     write (process_directory,'(A,A,I5.5,A)') trim(directory),'/work_p',procid(1),'/'
     open(iounit, status='old', form='unformatted', file=gen_filename(dump_filename, procid(1)), buffered='no')
   end if
+
+  call prep_backup_list(is_backup, iounit)
+
+  close(iounit)
+
+! initialize
+  if (.not. is_backup) then
+    call comm_set_level2_group(macRANK, kRANK)
+    call opt_vars_initialize_p1
+    call opt_vars_initialize_p2
+  end if
+
+  call comm_sync_all; end_time = get_wtime()
+
+  if (comm_is_root()) then
+    if (is_backup) then
+      write(*,*) 'Backup time =',end_time-beg_time,' sec'
+    else
+      write(*,*) 'Restore time =',end_time-beg_time,' sec'
+    end if
+  end if
+
+contains
+  function gen_filename(base, procid)
+    use global_variables, only: directory, process_directory
+    implicit none
+    character(*), intent(in)      :: base
+    integer, intent(in), optional :: procid
+    character(128)                :: gen_filename
+    character(32) :: cMyrank
+    if (present(procid)) then
+      write(cMyrank,'(I5.5)') procid
+      gen_filename = trim(process_directory)//trim(base)//'.p'//trim(cMyrank)
+    else
+      gen_filename = trim(directory)//trim(base)
+    end if
+  end function
+end subroutine
+
+subroutine prep_backup_list(is_backup, iounit)
+  use global_variables
+  use timer,           only: timer_reentrance_read, timer_reentrance_write
+  use backup_routines, only: backup_value
+  implicit none
+  logical, intent(in) :: is_backup
+  integer, intent(in) :: iounit
 
 !============= backup values ==============
 #define BACKUP(TARGET_VAR) call backup_value(is_backup, iounit, TARGET_VAR)
@@ -415,40 +459,6 @@ subroutine prep_backup_values(is_backup)
     call timer_reentrance_read(iounit)
   end if
 !============= backup values ==============
-  close(iounit)
-
-! initialize
-  if (.not. is_backup) then
-    call comm_set_level2_group(macRANK, kRANK)
-    call opt_vars_initialize_p1
-    call opt_vars_initialize_p2
-  end if
-
-  call comm_sync_all; end_time = get_wtime()
-
-  if (comm_is_root()) then
-    if (is_backup) then
-      write(*,*) 'Backup time =',end_time-beg_time,' sec'
-    else
-      write(*,*) 'Restore time =',end_time-beg_time,' sec'
-    end if
-  end if
-
-contains
-  function gen_filename(base, procid)
-    use global_variables, only: directory, process_directory
-    implicit none
-    character(*), intent(in)      :: base
-    integer, intent(in), optional :: procid
-    character(128)                :: gen_filename
-    character(32) :: cMyrank
-    if (present(procid)) then
-      write(cMyrank,'(I5.5)') procid
-      gen_filename = trim(process_directory)//trim(base)//'.p'//trim(cMyrank)
-    else
-      gen_filename = trim(directory)//trim(base)
-    end if
-  end function
 end subroutine
 
 subroutine prep_Reentrance_Read
